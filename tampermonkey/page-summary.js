@@ -18,7 +18,7 @@
 
     const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
     const MODEL_NAME = 'minimax/minimax-m2:free';
-    const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    // Cache TTL removed - now using permanent cache
     const CACHE_PREFIX = 'page_summary_';
     let isDockVisible = false;
     let isHoveringDock = false;
@@ -26,15 +26,15 @@
 
     const SYSTEM_PROMPT = `
 ## 角色
-你是“高保真信息压缩助手”。任务是基于给定原文生成简短但完整的总结。
+你是"高保真信息压缩助手"。任务是基于给定原文生成简短但完整的总结。
 
 ## 硬性规则
 1. 不得新增原文未出现的国家、机构、人物、时间、事件或立场。
 2. 不得替换或改写原文中的关键术语。
 3. 原文中出现的专有名词、数字、日期、机构、人物必须逐一覆盖。
 4. 立场和归因保持一致，不得颠倒或混淆。
-5. 原文的不确定语气必须保留（如“可能”“被视为”“分析认为”）。
-6. 原文未提及的点，明确写“原文未说明”，禁止自行补充。
+5. 原文的不确定语气必须保留（如"可能""被视为""分析认为"）。
+6. 原文未提及的点，明确写"原文未说明"，禁止自行补充。
 7. 所有原文要点都要覆盖，不能遗漏。
 
 ## 结构要求
@@ -42,7 +42,7 @@
 - 使用金字塔逻辑：一句核心结论 → 简要分论据 → 关键证据。
 - 语言简洁、书面化，去掉修辞和冗余，适合快速阅读。
 - 保留英文专有名词，不做生硬翻译。
-- 数据、文件、日期要以“原文提到…”“报道指出…”表达。
+- 数据、文件、日期要以"原文提到…""报道指出…"表达。
 - 必要时使用数字列表和要点列表 是逻辑更清楚
 
 ## 输出格式
@@ -96,7 +96,7 @@
         return CACHE_PREFIX + simpleHash(url);
     }
 
-    // Get cached summary if valid
+    // Get cached summary (no TTL check)
     function getCachedSummary() {
         try {
             const cacheKey = getCacheKey();
@@ -104,17 +104,8 @@
 
             if (!cached) return null;
 
-            const { summary, timestamp } = JSON.parse(cached);
-            const now = Date.now();
-
-            // Check if cache is still valid (within 24 hours)
-            if (now - timestamp < CACHE_TTL) {
-                return summary;
-            }
-
-            // Cache expired, remove it
-            localStorage.removeItem(cacheKey);
-            return null;
+            const { summary } = JSON.parse(cached);
+            return summary;
         } catch (error) {
             console.error('Error reading cache:', error);
             return null;
@@ -136,6 +127,26 @@
             cleanupOldCache();
         } catch (error) {
             console.error('Error saving cache:', error);
+        }
+    }
+
+    // Clear all page summary cache
+    function clearCache() {
+        try {
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith(CACHE_PREFIX)) {
+                    keys.push(key);
+                }
+            }
+
+            keys.forEach(key => localStorage.removeItem(key));
+            console.log(`Cleared ${keys.length} cache entries`);
+            return keys.length;
+        } catch (error) {
+            console.error('Error clearing cache:', error);
+            return 0;
         }
     }
 
@@ -393,6 +404,10 @@
                 secondary: `
                     background: #f3f4f6; color: #374151;
                     border: 1px solid #d1d5db;
+                `,
+                danger: `
+                    background: #ef4444; color: white;
+                    border: 1px solid #ef4444;
                 `
             };
 
@@ -407,6 +422,9 @@
             if (variant === 'primary') {
                 b.addEventListener('mouseover', () => b.style.background = '#2563eb');
                 b.addEventListener('mouseout', () => b.style.background = '#3b82f6');
+            } else if (variant === 'danger') {
+                b.addEventListener('mouseover', () => b.style.background = '#dc2626');
+                b.addEventListener('mouseout', () => b.style.background = '#ef4444');
             } else {
                 b.addEventListener('mouseover', () => b.style.background = '#e5e7eb');
                 b.addEventListener('mouseout', () => b.style.background = '#f3f4f6');
@@ -426,12 +444,22 @@
             });
         });
 
+        const clearCacheButton = mkBtn('Clear Cache', 'danger');
+        clearCacheButton.addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear all cached summaries? This action cannot be undone.')) {
+                const clearedCount = clearCache();
+                alert(`Cleared ${clearedCount} cached summaries.`);
+                overlay.remove();
+            }
+        });
+
         const closeFooterButton = mkBtn('Close', 'secondary');
         closeFooterButton.addEventListener('click', () => {
             overlay.remove();
         });
 
         footer.appendChild(copyButton);
+        footer.appendChild(clearCacheButton);
         footer.appendChild(closeFooterButton);
 
         // Assemble dialog
